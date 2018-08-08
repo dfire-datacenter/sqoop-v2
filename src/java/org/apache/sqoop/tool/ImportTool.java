@@ -25,8 +25,13 @@ import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.sql.Types;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.OptionBuilder;
@@ -76,6 +81,9 @@ public class ImportTool extends com.cloudera.sqoop.tool.BaseSqoopTool {
 
   // Set classloader for local job runner
   private ClassLoader prevClassLoader = null;
+
+  private ExecutorService threadPool;
+  private volatile String jarFile = null;
 
   public ImportTool() {
     this("import", false);
@@ -495,10 +503,14 @@ public class ImportTool extends com.cloudera.sqoop.tool.BaseSqoopTool {
    */
   protected boolean importTable(SqoopOptions options, String tableName,
       HiveImport hiveImport) throws IOException, ImportException {
-    String jarFile = null;
 
     // Generate the ORM code for the tables.
-    jarFile = codeGenerator.generateORM(options, tableName);
+    if (jarFile == null) {
+      synchronized (this) {
+        if (jarFile == null)
+          jarFile = codeGenerator.generateORM(options, tableName);
+      }
+    }
 
     Path outputPath = getOutputPath(options, tableName);
 
@@ -513,7 +525,7 @@ public class ImportTool extends com.cloudera.sqoop.tool.BaseSqoopTool {
     }
 
     if (options.isDeleteMode()) {
-      deleteTargetDir(context);
+      deleteTargetDir(options);
     }
 
     if (null != tableName) {
@@ -542,11 +554,95 @@ public class ImportTool extends com.cloudera.sqoop.tool.BaseSqoopTool {
 
     return true;
   }
+  /**
+   * import split table use a thread pool
+   * @param options
+   * @param connectionStr
+   * @return
+   * @throws IOException
+   * @throws InterruptedException
+   */
+  private boolean importSplitTable(SqoopOptions options, String connectionStr) throws IOException {
+    threadPool = Executors.newFixedThreadPool(options.getParallerNum());
+    final List<String> connections = parseConnection(connectionStr);
+    connections.add(options.getConnectString());
+    for (String connection : connections) {
+      LOG.info("Import from " + connection);
+    }
 
-  private void deleteTargetDir(ImportJobContext context) throws IOException {
+    int maxAttempts = 2;
+    if (System.getProperty("maxAttempts") != null) {
+      maxAttempts = Integer.valueOf(System.getProperty("maxAttempts"));
+    }
+    Map<String, Integer> attemptMap = new HashMap<String, Integer>();
+    Queue<Map.Entry<String, Future<String>>> taskQueue = new LinkedList<Map.Entry<String, Future<String>>>();
 
-    SqoopOptions options = context.getOptions();
-    Path destDir = context.getDestination();
+    for (final String connection : connections) {
+      final Future<String> future = threadPool.submit(new SingleSplitImportTask(options, connection));
+      taskQueue.add(new HashMap.SimpleEntry<String, Future<String>>(connection, future));
+      attemptMap.put(connection, 0);
+    }
+
+    while (!taskQueue.isEmpty()) {
+      Map.Entry<String, Future<String>> taskAndFuture = taskQueue.poll();
+      try {
+        String doneMsg = taskAndFuture.getValue().get();
+        LOG.info(doneMsg);
+      } catch (Exception e) {
+        String connection = taskAndFuture.getKey();
+        int attempt = attemptMap.get(connection);
+        if (attempt < maxAttempts) {
+          Future<String> future = threadPool.submit(new SingleSplitImportTask(options, connection));
+          taskQueue.add(new HashMap.SimpleEntry<String, Future<String>>(connection, future));
+          LOG.warn("Import from " + connection + " failed, we will try it again ");
+          attempt++;
+          attemptMap.put(connection, attempt);
+        } else {
+          LOG.error("Import from " + connection + " failed after " + maxAttempts + " times due to "
+                  + StringUtils.stringifyException(e));
+          throw new RuntimeException(e);
+        }
+      }
+    }
+
+    // If the user wants this table to be in Hive, perform that post-load.
+    if (options.doHiveImport()) {
+      // For Parquet file, the import action will create hive table directly via
+      // kite. So there is no need to do hive import as a post step again.
+      if (options.getFileLayout() != SqoopOptions.FileLayout.ParquetFile) {
+        HiveImport hiveImport = new HiveImport(options, manager, options.getConf(), false);
+        hiveImport.importTable(options.getTableName(), options.getHiveTableName(), false);
+      }
+    }
+
+    return true;
+  }
+
+  private List<String> parseConnection(String connectionStr) {
+    Pattern pattern = Pattern.compile("(?<=\\[).+?(?=\\])");
+
+    List<String> connections = new ArrayList<String>();
+    String[] inputCons = connectionStr.split(",");
+    for (String inputCon : inputCons) {
+      Matcher matcher = pattern.matcher(inputCon);
+      if (matcher.find()) {
+        String[] range = matcher.group().split("-");
+        if (range.length == 2) {
+          int start = Integer.parseInt(range[0].trim());
+          int end = Integer.parseInt(range[1].trim());
+          for (int i = start; i <= end; i++) {
+            String connection = inputCon.substring(0, matcher.start() - 1) + i + inputCon.substring(matcher.end() + 1, inputCon.length());
+            connections.add(connection);
+          }
+        }
+      }
+    }
+    return connections;
+  }
+
+  private void deleteTargetDir(SqoopOptions options) throws IOException {
+
+    Path destDir = getOutputPath(options, options.getTableName());
     FileSystem fs = destDir.getFileSystem(options.getConf());
 
     if (fs.exists(destDir)) {
@@ -603,6 +699,7 @@ public class ImportTool extends com.cloudera.sqoop.tool.BaseSqoopTool {
   @Override
   /** {@inheritDoc} */
   public int run(SqoopOptions options) {
+    long start = System.currentTimeMillis();
     HiveImport hiveImport = null;
 
     if (allTables) {
@@ -620,12 +717,20 @@ public class ImportTool extends com.cloudera.sqoop.tool.BaseSqoopTool {
     codeGenerator.setManager(manager);
 
     try {
-      if (options.doHiveImport()) {
-        hiveImport = new HiveImport(options, manager, options.getConf(), false);
+      if (options.isDeleteMode()) {
+        deleteTargetDir(options);
       }
 
-      // Import a single table (or query) the user specified.
-      importTable(options, options.getTableName(), hiveImport);
+      String connectionStr = options.getIncludeDatabases();
+      if (connectionStr != null) {
+        importSplitTable(options, connectionStr);
+      } else {
+        if (options.doHiveImport()) {
+          hiveImport = new HiveImport(options, manager, options.getConf(), false);
+        }
+        // Import a single table (or query) the user specified.
+        importTable(options, options.getTableName(), hiveImport);
+      }
     } catch (IllegalArgumentException iea) {
         LOG.error(IMPORT_FAILED_ERROR_MSG + iea.getMessage());
       rethrowIfRequired(options, iea);
@@ -644,6 +749,9 @@ public class ImportTool extends com.cloudera.sqoop.tool.BaseSqoopTool {
       return 1;
     } finally {
       destroy(options);
+      threadPool.shutdown();
+      long end = System.currentTimeMillis();
+      LOG.info("Total time taken "+ (int)(end-start)/1000 +" seconds");
     }
 
     return 0;
@@ -1178,6 +1286,41 @@ public class ImportTool extends com.cloudera.sqoop.tool.BaseSqoopTool {
     validateHiveOptions(options);
     validateHCatalogOptions(options);
     validateAccumuloOptions(options);
+  }
+
+  private class SingleSplitImportTask implements Callable<String> {
+    private final SqoopOptions options;
+    private final String connection;
+
+    public SingleSplitImportTask(SqoopOptions options, String connection) {
+      this.options = options;
+      this.connection = connection;
+    }
+
+    @Override
+    public String call() {
+      long start = System.currentTimeMillis();
+
+      SqoopOptions newOption = (SqoopOptions) options.clone();
+      newOption.setConnectString(connection);
+      newOption.setAppendMode(true);
+      newOption.setHiveImport(false);
+
+      long end;
+
+      try {
+        importTable(newOption, newOption.getTableName(), null);
+      } catch (Exception e) {
+        end = System.currentTimeMillis();
+        LOG.error("Import failed for: " + connection + " after " + (int) (end - start) / 1000 + " seconds"
+                + StringUtils.stringifyException(e));
+        throw new RuntimeException(e);
+      }
+
+      end = System.currentTimeMillis();
+
+      return "Consume " + (int) (end - start) / 1000 + " seconds to import from " + connection;
+    }
   }
 }
 

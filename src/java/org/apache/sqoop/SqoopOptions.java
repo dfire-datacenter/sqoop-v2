@@ -124,6 +124,8 @@ public class SqoopOptions implements Cloneable {
   @StoredAsProperty("mapreduce.job.name") private String mapreduceJobName;
 
   @StoredAsProperty("db.connect.string") private String connectString;
+  @StoredAsProperty("db.include_databases") private String includeDatabases;
+  @StoredAsProperty("db.paraller_num") private int parallerNum = 1;
   @StoredAsProperty("db.table") private String tableName;
   private String [] columns; // Array stored as db.column.list.
   @StoredAsProperty("db.username") private String username;
@@ -1214,6 +1216,22 @@ public class SqoopOptions implements Cloneable {
 
   public void setConnectString(String connectStr) {
     this.connectString = connectStr;
+  }
+
+  public String getIncludeDatabases() {
+    return includeDatabases;
+  }
+
+  public void setIncludeDatabases(String includeDatabases) {
+    this.includeDatabases = includeDatabases;
+  }
+
+  public int getParallerNum() {
+    return parallerNum;
+  }
+
+  public void setParallerNum(int parallerNum) {
+    this.parallerNum = parallerNum;
   }
 
   public String getTableName() {

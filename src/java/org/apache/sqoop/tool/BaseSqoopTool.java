@@ -73,6 +73,8 @@ public abstract class BaseSqoopTool extends com.cloudera.sqoop.tool.SqoopTool {
       "connection-manager";
   public static final String CONNECT_PARAM_FILE = "connection-param-file";
   public static final String DRIVER_ARG = "driver";
+  public static final String INCLUDE_DATABASES_ARG = "include-databases";
+  public static final String PARALLER_NUM_ARG = "paraller-num";
   public static final String USERNAME_ARG = "username";
   public static final String PASSWORD_ARG = "password";
   public static final String PASSWORD_PROMPT_ARG = "P";
@@ -437,6 +439,16 @@ public abstract class BaseSqoopTool extends com.cloudera.sqoop.tool.SqoopTool {
         .hasArg().withDescription("Specify JDBC connect string")
         .withLongOpt(CONNECT_STRING_ARG)
         .create());
+    commonOpts.addOption(OptionBuilder.withArgName("include-databases")
+            .hasArg()
+            .withDescription("set the multiple database").
+                    withLongOpt(INCLUDE_DATABASES_ARG).
+                    create());
+    commonOpts.addOption(OptionBuilder.withArgName("paraller-num")
+            .hasArg()
+            .withDescription("set the paraller exec number").
+                    withLongOpt(PARALLER_NUM_ARG).
+                    create());
     commonOpts.addOption(OptionBuilder.withArgName("class-name")
         .hasArg().withDescription("Specify connection manager class name")
         .withLongOpt(CONN_MANAGER_CLASS_NAME)
@@ -1010,6 +1022,14 @@ public abstract class BaseSqoopTool extends com.cloudera.sqoop.tool.SqoopTool {
 
     if (in.hasOption(CONNECT_STRING_ARG)) {
       out.setConnectString(in.getOptionValue(CONNECT_STRING_ARG));
+    }
+
+    if (in.hasOption(INCLUDE_DATABASES_ARG)) {
+      out.setIncludeDatabases(in.getOptionValue(INCLUDE_DATABASES_ARG));
+    }
+
+    if(in.hasOption(PARALLER_NUM_ARG)) {
+      out.setParallerNum(Integer.parseInt(in.getOptionValue(PARALLER_NUM_ARG).trim()));
     }
 
     if (in.hasOption(CONN_MANAGER_CLASS_NAME)) {
