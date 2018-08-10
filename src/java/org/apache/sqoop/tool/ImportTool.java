@@ -26,10 +26,7 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import java.sql.Types;
 import java.util.*;
-import java.util.concurrent.Callable;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
+import java.util.concurrent.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -574,12 +571,12 @@ public class ImportTool extends com.cloudera.sqoop.tool.BaseSqoopTool {
     if (System.getProperty("maxAttempts") != null) {
       maxAttempts = Integer.valueOf(System.getProperty("maxAttempts"));
     }
-    Map<String, Integer> attemptMap = new HashMap<String, Integer>();
-    Queue<Map.Entry<String, Future<String>>> taskQueue = new LinkedList<Map.Entry<String, Future<String>>>();
+    Map<String, Integer> attemptMap = new HashMap<>();
+    Queue<Map.Entry<String, Future<String>>> taskQueue = new LinkedList<>();
 
     for (final String connection : connections) {
       final Future<String> future = threadPool.submit(new SingleSplitImportTask(options, connection));
-      taskQueue.add(new HashMap.SimpleEntry<String, Future<String>>(connection, future));
+      taskQueue.add(new HashMap.SimpleEntry<>(connection, future));
       attemptMap.put(connection, 0);
     }
 
@@ -588,12 +585,12 @@ public class ImportTool extends com.cloudera.sqoop.tool.BaseSqoopTool {
       try {
         String doneMsg = taskAndFuture.getValue().get();
         LOG.info(doneMsg);
-      } catch (Exception e) {
+      } catch (InterruptedException | ExecutionException e) {
         String connection = taskAndFuture.getKey();
         int attempt = attemptMap.get(connection);
         if (attempt < maxAttempts) {
           Future<String> future = threadPool.submit(new SingleSplitImportTask(options, connection));
-          taskQueue.add(new HashMap.SimpleEntry<String, Future<String>>(connection, future));
+          taskQueue.add(new HashMap.SimpleEntry<>(connection, future));
           LOG.warn("Import from " + connection + " failed, we will try it again ");
           attempt++;
           attemptMap.put(connection, attempt);
@@ -621,9 +618,11 @@ public class ImportTool extends com.cloudera.sqoop.tool.BaseSqoopTool {
   private List<String> parseConnection(String connectionStr) {
     Pattern pattern = Pattern.compile("(?<=\\[).+?(?=\\])");
 
-    List<String> connections = new ArrayList<String>();
     String[] inputCons = connectionStr.split(",");
+    List<LinkedList<String>> allConnections = new ArrayList<>();
+    int count = 0;
     for (String inputCon : inputCons) {
+      LinkedList<String> dbConnections = new LinkedList<>();
       Matcher matcher = pattern.matcher(inputCon);
       if (matcher.find()) {
         String[] range = matcher.group().split("-");
@@ -632,12 +631,27 @@ public class ImportTool extends com.cloudera.sqoop.tool.BaseSqoopTool {
           int end = Integer.parseInt(range[1].trim());
           for (int i = start; i <= end; i++) {
             String connection = inputCon.substring(0, matcher.start() - 1) + i + inputCon.substring(matcher.end() + 1, inputCon.length());
-            connections.add(connection);
+            dbConnections.add(connection);
+            count++;
           }
+          allConnections.add(dbConnections);
         }
       }
     }
-    return connections;
+
+    List<String> result = new ArrayList<>();
+
+    int i = 0;
+    while (i < count) {
+      for (LinkedList<String> dbConnections : allConnections) {
+        if (!dbConnections.isEmpty()) {
+          result.add(dbConnections.poll());
+          i++;
+        }
+      }
+    }
+
+    return result;
   }
 
   private void deleteTargetDir(SqoopOptions options) throws IOException {
