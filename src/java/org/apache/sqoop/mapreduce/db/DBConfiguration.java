@@ -63,6 +63,9 @@ public class DBConfiguration {
   /** JDBC Database access URL. */
   public static final String URL_PROPERTY = "mapreduce.jdbc.url";
 
+  /** JDBC Database access URLs. */
+  public static final String ALL_URL_PROPERTY = "mapreduce.jdbc.urls";
+
   /** User name to access the database. */
   public static final String USERNAME_PROPERTY = "mapreduce.jdbc.username";
 

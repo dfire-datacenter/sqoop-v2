@@ -263,6 +263,12 @@ public class DataDrivenImportJob extends ImportJobBase {
             options.getConnectionParams());
       }
 
+      if (options.getIncludeDatabases() != null) {
+        String allUrls = options.getConnectString().replaceAll(";", "").trim()
+                + "," + options.getIncludeDatabases();
+        job.getConfiguration().set(org.apache.sqoop.mapreduce.db.DBConfiguration.ALL_URL_PROPERTY,allUrls);
+      }
+
       if (null != tableName) {
         // Import a table.
         String [] colNames = options.getColumns();

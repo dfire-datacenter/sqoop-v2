@@ -24,6 +24,7 @@ import com.cloudera.sqoop.SqoopOptions;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
+import org.apache.sqoop.mapreduce.db.ShardDBInputFormat;
 import org.apache.sqoop.util.Jars;
 
 /**
@@ -48,7 +49,10 @@ public class ImportJobContext {
       this.jarFile = Jars.getJarPathForClass(Configuration.class);
     }
     this.options = opts;
-    this.inputFormatClass = DataDrivenDBInputFormat.class;
+    if (opts.getIncludeDatabases() != null) {
+      this.inputFormatClass = ShardDBInputFormat.class;
+    } else
+        this.inputFormatClass = DataDrivenDBInputFormat.class;
     this.destination = destination;
   }
 
