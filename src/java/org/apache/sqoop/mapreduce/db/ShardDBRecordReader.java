@@ -20,6 +20,7 @@ package org.apache.sqoop.mapreduce.db;
 import java.io.IOException;
 import java.sql.*;
 import java.util.Arrays;
+import java.util.Properties;
 import java.util.Queue;
 
 import com.cloudera.sqoop.mapreduce.db.DataDrivenDBInputFormat;
@@ -37,6 +38,8 @@ import com.cloudera.sqoop.mapreduce.db.DBConfiguration;
 import com.cloudera.sqoop.mapreduce.db.DBInputFormat;
 import org.apache.sqoop.util.LoggingUtils;
 
+import static org.apache.sqoop.mapreduce.db.DBConfiguration.propertiesFromString;
+
 /**
  * A RecordReader that reads records from a SQL table.
  * Emits LongWritables containing the record number as
@@ -46,6 +49,10 @@ public class ShardDBRecordReader<T extends DBWritable> extends
         RecordReader<LongWritable, T> {
 
     private static final Log LOG = LogFactory.getLog(ShardDBRecordReader.class);
+
+    private static int CONNECT_TIMEOUT = 60000; //unit: ms
+
+    private static int SOCKET_TIMEOUT = 60000; //unit: ms
 
     private Class<T> inputClass;
 
@@ -239,7 +246,7 @@ public class ShardDBRecordReader<T extends DBWritable> extends
 
     @Override
     public float getProgress() throws IOException {
-        return (totalConnectionsSize - connections.size())* 1.0f/totalConnectionsSize;
+        return (totalConnectionsSize - connections.size()) * 1.0f / totalConnectionsSize;
     }
 
     @Override
@@ -260,12 +267,19 @@ public class ShardDBRecordReader<T extends DBWritable> extends
                 this.currentResults = executeQuery(getSelectQuery(), currentConnection);
             }
 
+            if (null == currentResults) {
+                return false;
+            }
+
             while (!this.currentResults.next()) {
                 currentConnection = switchConnection();
                 if (null == currentConnection) {
                     return false;
                 }
                 this.currentResults = executeQuery(getSelectQuery(), currentConnection);
+                if (null == currentResults) {
+                    return false;
+                }
             }
             // Set the key field value as the output key value
             key.set(pos + split.getStart());
@@ -282,16 +296,42 @@ public class ShardDBRecordReader<T extends DBWritable> extends
 
     private Connection switchConnection() throws IOException {
         close();
-        String url = connections.poll();
-        if (null == url)
+        String inputUrl = connections.poll();
+        if (null == inputUrl)
             return null;
-        else
+        else {
+            String url = inputUrl.trim().replaceAll("\\s", "");
             return getConnection(url);
+        }
     }
 
     private Connection getConnection(String url) {
         org.apache.sqoop.mapreduce.db.DBConfiguration dbConf = new org.apache.sqoop.mapreduce.db.DBConfiguration(conf);
+
+        String connectionParamsStr =
+                conf.get(org.apache.sqoop.mapreduce.db.DBConfiguration.CONNECTION_PARAMS_PROPERTY);
+        Properties connectionParams = propertiesFromString(connectionParamsStr);
+        if (!url.contains("?")) {
+            url += "?";
+        }
+        if (connectionParams != null && connectionParams.size() > 0) {
+            if (connectionParams.contains("connectTimeout")) {
+                CONNECT_TIMEOUT = Integer.valueOf(connectionParams.getProperty("connectTimeout"));
+            }
+            if (connectionParams.contains("socketTimeout")) {
+                SOCKET_TIMEOUT = Integer.valueOf(connectionParams.getProperty("socketTimeout"));
+            }
+        }
+
+        if (!url.contains("connectTimeout")) {
+            url += "&connectTimeout=" + CONNECT_TIMEOUT;
+        }
+        if (!url.contains("socketTimeout")) {
+            url += "&socketTimeout=" + SOCKET_TIMEOUT;
+        }
+
         dbConf.getConf().set(org.apache.sqoop.mapreduce.db.DBConfiguration.URL_PROPERTY, url);
+
         Connection connection;
         try {
             connection = dbConf.getConnection();
