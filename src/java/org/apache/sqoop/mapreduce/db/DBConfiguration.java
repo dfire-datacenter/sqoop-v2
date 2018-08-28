@@ -63,6 +63,10 @@ public class DBConfiguration {
   /** JDBC Database access URL. */
   public static final String URL_PROPERTY = "mapreduce.jdbc.url";
 
+  private static int CONNECT_TIMEOUT = 300000; //unit: ms
+
+  private static int SOCKET_TIMEOUT = 300000; //unit: ms
+
   /** JDBC Database access URLs. */
   public static final String ALL_URL_PROPERTY = "mapreduce.jdbc.urls";
 
@@ -282,9 +286,32 @@ public class DBConfiguration {
     String username = conf.get(DBConfiguration.USERNAME_PROPERTY);
     String password = getPassword((JobConf) conf);
     String connectString = conf.get(DBConfiguration.URL_PROPERTY);
+
     String connectionParamsStr =
-      conf.get(DBConfiguration.CONNECTION_PARAMS_PROPERTY);
+            conf.get(DBConfiguration.CONNECTION_PARAMS_PROPERTY);
     Properties connectionParams = propertiesFromString(connectionParamsStr);
+
+    if (!connectString.contains("?")) {
+      connectString += "?";
+    }
+    if (connectionParams != null && connectionParams.size() > 0) {
+      if (connectionParams.contains("connectTimeout")) {
+        CONNECT_TIMEOUT = Integer.valueOf(connectionParams.getProperty("connectTimeout"));
+      }
+      if (connectionParams.contains("socketTimeout")) {
+        SOCKET_TIMEOUT = Integer.valueOf(connectionParams.getProperty("socketTimeout"));
+      }
+    }
+    if (!connectString.contains("connectTimeout")) {
+      connectString += "&connectTimeout=" + CONNECT_TIMEOUT;
+    }
+    if (!connectString.contains("socketTimeout")) {
+      connectString += "&socketTimeout=" + SOCKET_TIMEOUT;
+    }
+
+    if (!connectString.contains("zeroDateTimeBehavior")) {
+      connectString += "&zeroDateTimeBehavior=convertToNull";
+    }
 
     if (connectionParams != null && connectionParams.size() > 0) {
       Properties props = new Properties();

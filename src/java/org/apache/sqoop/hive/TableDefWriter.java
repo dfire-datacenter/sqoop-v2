@@ -245,21 +245,6 @@ public class TableDefWriter {
     Path finalPath = getFinalPath();
 
     StringBuilder sb = new StringBuilder();
-    if (options.getIncludeDatabases() != null) {
-      sb.append("alter table `");
-      if(options.getHiveDatabaseName() != null) {
-        sb.append(options.getHiveDatabaseName()).append("`.`");
-      }
-      sb.append(outputTableName);
-      sb.append('`');
-      sb.append(" drop if EXISTS");
-      if (options.getHivePartitionKey() != null) {
-        sb.append(" PARTITION (")
-                .append(options.getHivePartitionKey())
-                .append("!='").append(options.getHivePartitionValue())
-                .append("');");
-      }
-    }
     sb.append("LOAD DATA INPATH '");
     sb.append(finalPath.toString() + "'");
     if (options.doOverwriteHiveTable()) {
