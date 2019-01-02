@@ -78,7 +78,7 @@ sqoop import --connect  ${datasource}  \
 
   connect:这个参数不能省略，兼容用的，导致比较麻烦。默认导出用第一个库就行了
   比如：128个库会导致，1+127 的写法
-  eg: jdbc:mysql://cluster3511.my.2dfire-inc.com:3306/account_center1  1:表示第一个库
+  eg: jdbc:mysql://xxx:3306/account_center1  1:表示第一个库
 
   include-databases:数据库地址集合
 
