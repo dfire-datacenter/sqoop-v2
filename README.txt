@@ -86,6 +86,10 @@ sqoop import --connect  ${datasource}  \
 
   paraller-num ：并发，这个参数会导致 -m 参数无效
 
+# 其他参数介绍
+# 1. 控制导出数据量
+-D sqoop.export.records.per.statement=10
+
 * Try running +asciidoc README.txt+
 * For more information about asciidoc, see http://www.methods.co.nz/asciidoc/
 
