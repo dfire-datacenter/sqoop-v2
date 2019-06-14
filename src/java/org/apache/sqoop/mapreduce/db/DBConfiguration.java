@@ -63,9 +63,10 @@ public class DBConfiguration {
   /** JDBC Database access URL. */
   public static final String URL_PROPERTY = "mapreduce.jdbc.url";
 
-  private static int CONNECT_TIMEOUT = 300000; //unit: ms
-
-  private static int SOCKET_TIMEOUT = 300000; //unit: ms
+  /** unit: ms */
+  private static int CONNECT_TIMEOUT = 300000;
+  /** unit: ms */
+  private static int SOCKET_TIMEOUT = 300000;
 
   /** JDBC Database access URLs. */
   public static final String ALL_URL_PROPERTY = "mapreduce.jdbc.urls";

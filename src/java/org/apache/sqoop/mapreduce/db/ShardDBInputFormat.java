@@ -44,6 +44,13 @@ public class ShardDBInputFormat<T extends DBWritable>
 
     private static final Log LOG = LogFactory.getLog(ShardDBInputFormat.class);
 
+    /**
+     * 数据库解析规则
+     * 参考：readme
+     */
+   private static  final Pattern dbNum = Pattern.compile("(?<=\\[).+?(?=\\])");
+
+
     @Override
     public List<InputSplit> getSplits(JobContext job) throws IOException {
         String allUrls = job.getConfiguration().get(DBConfiguration.ALL_URL_PROPERTY);
@@ -60,29 +67,44 @@ public class ShardDBInputFormat<T extends DBWritable>
         return splits;
     }
 
-    private List<Queue<String>> parseConnection(String inputString, int numMaps) {
 
-        Pattern dbNum = Pattern.compile("(?<=\\[).+?(?=\\])"); //数据库编号
+
+
+
+    private static List<String> match(List<String> connections,String input) {
+        Matcher rangeMatcher = dbNum.matcher(input);
+        if (rangeMatcher.find()) {
+            String[] range = rangeMatcher.group().split("-");
+            if (range.length == 2) {
+                int start = Integer.parseInt(range[0].trim());
+                int end = Integer.parseInt(range[1].trim());
+                for (int i = start; i <= end; i++) {
+                    String connection = input.substring(0, rangeMatcher.start() - 1) + i + input.substring(rangeMatcher.end() + 1);
+                    if(dbNum.matcher(connection).find()){
+                        match(connections,connection);
+                    }else {
+                        connections.add(connection);
+                    }
+                }
+            }
+        }
+        return connections;
+    }
+
+
+    /**
+     * 解析字符串连接
+     * @param inputString
+     * @param numMaps 每个字符串的并发导入数
+     * @return
+     */
+    private List<Queue<String>> parseConnection(String inputString, int numMaps) {
 
         List<String> connections = new ArrayList<>();
 
         String[] inputCons = inputString.split(",");
-        for (String inputCon : inputCons) {
-            Matcher rangeMatcher = dbNum.matcher(inputCon);
-
-            if (rangeMatcher.find()) {
-                String[] range = rangeMatcher.group().split("-");
-                if (range.length == 2) {
-                    int start = Integer.parseInt(range[0].trim());
-                    int end = Integer.parseInt(range[1].trim());
-                    for (int i = start; i <= end; i++) {
-                        String connection = inputCon.substring(0, rangeMatcher.start() - 1) + i + inputCon.substring(rangeMatcher.end() + 1, inputCon.length());
-                        connections.add(connection);
-                    }
-                }
-            } else {
-                connections.add(inputCon);
-            }
+        for(String input : inputCons){
+            match(connections,input);
         }
 
         List<Queue<String>> mapperConnections = new ArrayList<>();

@@ -86,6 +86,9 @@ sqoop import --connect  ${datasource}  \
 
   paraller-num ：并发，这个参数会导致 -m 参数无效
 
+  支持异构数据源导出(部分城市分片)
+  jdbc:mysql://db-cq-[1-2]:3306/table[1-2],jdbc:mysql://db-hz-[3-4]:3306/caicai
+
 # 其他参数介绍
 # 1. 控制导出数据量
 -D sqoop.export.records.per.statement=10
